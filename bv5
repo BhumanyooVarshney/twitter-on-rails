@@ -1,0 +1,252 @@
+`timescale 1ns / 1ps
+//////////////////////////////////////////////////////////////////////////////////
+// Company: 
+// Engineer: 
+// 
+// Create Date: 22.01.2019 10:58:20
+// Design Name: 
+// Module Name: vga_game
+// Project Name: 
+// Target Devices: 
+// Tool Versions: 
+// Description: 
+// 
+// Dependencies: 
+// 
+// Revision:
+// Revision 0.01 - File Created
+// Additional Comments:
+// 
+//////////////////////////////////////////////////////////////////////////////////
+
+
+module vga_game(
+    input clk_65M,
+    input clear,
+    input Vid_on,
+    input game_on,
+    input game_startd, // M4
+    input [16:0] H_count,
+    input [16:0] V_count,
+    output reg [3:0]  VGA_red,
+    output reg [3:0]  VGA_green,
+    output reg [3:0]  VGA_blue
+    );
+    
+    
+    parameter HPIXELS = 1344; // Value of pixels in a horizontal line = 1344 (136+160+1024+24 = 1344)
+    parameter VLINES = 806; // Value of pixels in a vertical line = 806 (6+29+768+3 = 806)
+    parameter HBP = 296; // Horizontal back porch = 296 (136+160); The horizontal pixel point from which display begins
+    parameter HFP = 1320; // Horizontal front porch = 1320 (296+1024); The horizontal pixel point at which display ends
+    parameter VBP = 35; // Vertical back porch = 35 (6+29); The vertical pixel point from which display begins
+    parameter VFP = 803; // Vertical front porch = 803 (35+768); The vertical pixel point at which display ends
+    parameter HSP = 136; // Horizontal sync pixels = 136
+    parameter VSP = 6; // Vertical sync pixels = 6
+    parameter HSCREEN = 1024; // Horizontal screen display pixels
+    parameter VSCREEN = 768; // Vertical screen display pixels   
+    
+    ////////////// ** WALL ** //////////////////////////////////////////////////////////////        
+        
+    // Wall Parameters and variables
+    parameter WALL_X_LEFT = 50;
+    parameter WALL_X_RIGHT = 100;
+    reg wall_on;
+        
+    // WALL Display    
+    always@(*)
+        begin
+            if((H_count>=WALL_X_LEFT + HBP) && (H_count < HBP + WALL_X_RIGHT))
+                wall_on = 1'b1;
+            else
+                wall_on = 1'b0;
+        end    
+    ////////////// ** WALL ** //////////////////////////////////////////////////////////////     
+    
+    
+     ////////////// ** Adding Moving BALL ** ////////////////////////////////////////////////////////
+                            
+    // Parameters for the Ball  M5
+    parameter SQ_X_START = 200;
+    parameter SQ_Y_START = 200;
+    parameter SQ_SIZE = 31;
+    parameter VELOCITY_SQ_DEFAULT =4;
+    
+    // M6 Logic for sq_on signal
+    reg sq_on;    
+    wire [16:0] sq_xstart, sq_xstop, sq_ystart, sq_ystop;
+    // Ball Display and Movement  
+    always@(*)
+        begin
+            if(((H_count >= sq_xstart + HBP) && (H_count < HBP + sq_xstop)) && 
+                ((V_count >= sq_ystart + VBP) && (V_count < VBP + sq_ystop)))
+                sq_on = 1;
+            else
+                sq_on = 0;
+        end
+        
+     //M7
+     reg [16:0] sq_xstart_reg, sq_ystart_reg;
+     assign sq_xstart = sq_xstart_reg;
+     assign sq_xstop = sq_xstart + SQ_SIZE;
+     assign sq_ystart = sq_ystart_reg;
+     assign sq_ystop = sq_ystart + SQ_SIZE;
+     
+     
+     //M8
+     reg [16:0] sq_xstart_next, sq_ystart_next;
+     always@(posedge clk_65M)
+         begin
+              if (clear == 1'b1)
+              begin
+                  sq_xstart_reg <= SQ_X_START;
+                  sq_ystart_reg <= SQ_Y_START;
+              end
+              else
+              begin
+                  sq_xstart_reg <= sq_xstart_next;
+                  sq_ystart_reg <= sq_ystart_next;
+              end
+         end 
+         
+   //M9
+   reg game_stop;
+   wire refr_tick;
+   assign refr_tick = ((V_count == 0) && (H_count == 0));
+   
+   //M10
+   reg [16:0] sq_xstart_delta_reg, sq_ystart_delta_reg;
+     always@(*)
+            begin
+                  sq_xstart_next = sq_xstart_reg;
+                  if (game_stop == 1'b1)
+                      sq_xstart_next = SQ_X_START;
+                  else if (refr_tick == 1'b1) // Addition is done only once per frame
+                      sq_xstart_next = sq_xstart_reg + sq_xstart_delta_reg;
+             end
+             
+   //M11
+   always@(*)
+           begin
+                sq_ystart_next = sq_ystart_reg;
+                if (game_stop == 1'b1)
+                    sq_ystart_next = SQ_Y_START;
+                else if (refr_tick == 1'b1) // Addition is done only once per frame
+                    sq_ystart_next = sq_ystart_reg + sq_ystart_delta_reg;
+           end 
+   
+   //M12
+   reg [16:0] sq_xstart_delta_next, sq_ystart_delta_next;
+        always@(posedge clk_65M)
+            begin
+                if(clear == 1'b1)
+                    begin
+                        sq_xstart_delta_reg <= 0;
+                        sq_ystart_delta_reg <= 0;
+                    end
+                else
+                    begin
+                        sq_xstart_delta_reg <= sq_xstart_delta_next;
+                        sq_ystart_delta_reg <= sq_ystart_delta_next;
+                    end
+            end
+            
+    //M13
+    reg [16:0] sq_velocity_reg=VELOCITY_SQ_DEFAULT;       
+        always@(*)
+            begin
+                sq_xstart_delta_next = sq_xstart_delta_reg;
+                if(sq_xstart <= WALL_X_RIGHT)
+                    sq_xstart_delta_next = sq_velocity_reg;
+                else if (sq_xstop >= HSCREEN)
+                    sq_xstart_delta_next = -sq_velocity_reg;
+                else if (game_stop == 1'b1 || game_startd == 1'b1)
+                    sq_xstart_delta_next = VELOCITY_SQ_DEFAULT;
+                else if (sq_velocity_reg > sq_xstart_delta_reg) // To change the speed immedately
+                    sq_xstart_delta_next = sq_velocity_reg;
+            end    
+            
+   //M14
+   always@(*)
+            begin
+                sq_ystart_delta_next = sq_ystart_delta_reg;
+                if(sq_ystop <= SQ_SIZE)
+                    sq_ystart_delta_next = sq_velocity_reg;
+                else if (sq_ystop >= VSCREEN)
+                    sq_ystart_delta_next = - sq_velocity_reg;
+                else if (game_stop == 1'b1 || game_startd == 1'b1)
+                    sq_ystart_delta_next = VELOCITY_SQ_DEFAULT;
+            end   
+                              
+     //M15                         
+       reg [3:0] wall_hit_count_reg=0;
+       reg [3:0] wall_hit_count_next;        
+         always @(posedge clk_65M)
+             begin
+                 if(clear == 1'b1)
+                     wall_hit_count_reg <= 0;
+                 else
+                     wall_hit_count_reg <= wall_hit_count_next;
+             end
+    
+    //M16         
+    wire wall_hit_count;           
+         always@(*)
+             begin
+                 wall_hit_count_next = wall_hit_count_reg;
+                 if(wall_hit_count == 1'b1 && refr_tick == 1'b1)
+                     wall_hit_count_next = wall_hit_count_reg + 1;
+                 else if (wall_hit_count_reg == 4'd5) // To avoid continuous increase in velocity
+                     wall_hit_count_next = 0;
+                 else if (game_stop == 1'b1)
+                     wall_hit_count_next = 0;
+             end
+                     
+   assign wall_hit_count = (sq_xstart <= WALL_X_RIGHT);  
+  
+  
+  //M17
+   // Game Stop when BALL hits the wall for a certain number of times.   
+            always@(posedge clk_65M)
+            begin
+                if(clear == 1'b1)
+                    game_stop = 1'b1;
+                else if ((game_startd == 1'b1))
+                    game_stop = 1'b0;
+                else if (game_on == 1'b0)
+                    game_stop = 1'b1;
+                else if (wall_hit_count_reg == 17'd5)
+                    game_stop = 1'b1;
+            end       
+                     
+    ////////////// ** COLOR ** //////////////////////////////////////////////////////////////   
+    always@(*)
+        begin
+            VGA_red = 4'b0000; 
+            VGA_green = 4'b0000; 
+            VGA_blue = 4'b0000;       
+            if(Vid_on == 1 && game_on == 1 && wall_on == 1)  //Wall display
+            begin
+                VGA_red = 4'b0000; 
+                VGA_green = 4'b0000; 
+                VGA_blue = 4'b1111;
+            end
+            else if(Vid_on == 1 && game_on == 1 && sq_on == 1)  //ball display
+            begin
+                VGA_red = 4'b1111; 
+                VGA_green = 4'b0000; 
+                VGA_blue = 4'b0000;
+            end
+            else if (Vid_on == 1 && game_on == 1)  // Background Display
+            begin
+                VGA_red = 4'b1111; 
+                VGA_green = 4'b1111; 
+                VGA_blue = 4'b0000;
+            end
+            else if (Vid_on == 1) //Blankscreen Display
+            begin
+                VGA_red = 4'b1111; 
+                VGA_green = 4'b1111; 
+                VGA_blue = 4'b1111;
+             end
+        end
+endmodule
